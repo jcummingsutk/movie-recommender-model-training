@@ -1,0 +1,20 @@
+{
+    "python.languageServer": "Pylance",
+    "black-formatter.path": [
+        "black",
+    ],
+    "flake8.path": [
+        "flake8"
+    ],
+    "jupyter.notebookFileRoot": "${workspaceFolder}",
+    "isort.path": [
+        "isort"
+    ],
+    "[python]": {
+        "editor.defaultFormatter": "ms-python.black-formatter",
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+            "source.organizeImports": "explicit"
+        }
+    },
+}
