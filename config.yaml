@@ -1,0 +1,15 @@
+database:
+  dev:
+    host: db-movie-recommender-do-user-16701211-0.c.db.ondigitalocean.com
+    user: doadmin
+    port: 25060
+    database: dev
+azure:
+  dev:
+    MLFLOW_TRACKING_URI: azureml://eastus2.api.azureml.ms/mlflow/v1.0/subscriptions/94f3bfe4-d65b-4af2-959a-f4cc3f4fef6a/resourceGroups/movie-recommender/providers/Microsoft.MachineLearningServices/workspaces/movie-recommender-dev
+    SUBSCRIPTION_ID: 94f3bfe4-d65b-4af2-959a-f4cc3f4fef6a
+    RESOURCE_GROUP: movie-recommender
+    WORKSPACE_NAME: movie-recommender-dev
+
+  AZURE_TENANT_ID: e6ba44d9-c40a-4dc9-b59f-8fff330da1c0
+  AZURE_CLIENT_ID: efc9afe4-877c-4ccb-a264-2a0ee10b8c68
