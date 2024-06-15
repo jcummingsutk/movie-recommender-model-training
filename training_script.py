@@ -5,17 +5,25 @@ import torch
 import yaml
 from azure.ai.ml import MLClient
 from azure.identity import EnvironmentCredential
-from config import get_config_dict, load_azure_service_principal_environment_vars
-from data_utils import (
+from code_training.config import (
+    get_config_dict,
+    load_azure_service_principal_environment_vars,
+)
+from code_training.data_utils import (
     create_dataloaders,
     create_train_test_split,
     get_dev_db_params,
     load_dataframe,
+    get_movie_ids_to_include,
 )
-from model_utils import RecSysModel, train
+from code_training.model_utils import RecSysModel, train
+import os
+import json
 
 
 def main(parameters_file: str, config_file: str, config_secrets_file: str):
+    artifacts_dir = "./my_artfiacts"
+    os.makedirs(artifacts_dir, exist_ok=True)
     device = torch.device("cuda" if torch.cuda.is_available else "cpu")
     with open(parameters_file) as fp:
         parameters = yaml.safe_load(fp)
@@ -32,6 +40,17 @@ def main(parameters_file: str, config_file: str, config_secrets_file: str):
         params["password"],
         params["port"],
     )
+
+    movie_ids_to_include = get_movie_ids_to_include(df, 20)
+    movie_ids_to_include = list(map(lambda x: int(x), movie_ids_to_include))
+    print(
+        f"{len(movie_ids_to_include)/df['movieId'].unique().shape[0]*100:.2f}% of movies have a greater than 20 ratings"
+    )
+    with open(os.path.join(artifacts_dir, "movie_ids.json"), "w") as fp:
+        json.dump(movie_ids_to_include, fp)
+    mlflow.log_artifacts("./my_artfiacts/")
+
+    df = df[df["movieId"].isin(movie_ids_to_include)]
 
     model = RecSysModel(df).to(device)
 

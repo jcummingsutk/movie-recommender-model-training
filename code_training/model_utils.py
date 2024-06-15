@@ -1,5 +1,3 @@
-import glob
-import os
 from typing import Any
 
 import matplotlib.pyplot as plt
@@ -7,16 +5,17 @@ import mlflow
 import numpy as np
 import pandas as pd
 import torch
-from metric_utils import RunningTrainMetrics, concat_results, get_metrics_dict
+from .metric_utils import RunningTrainMetrics, concat_results, get_metrics_dict
 from sklearn.preprocessing import LabelEncoder
 from torch import nn
 from torch.utils.data import DataLoader
-from visualizations import epoch_metrics_lineplot, training_mae_numexamples_lineplot
+from .visualizations import epoch_metrics_lineplot, training_mae_numexamples_lineplot
 
 
 class RecSysModel(nn.Module):
     def __init__(self, df: pd.DataFrame):
         super().__init__()
+
         self.user_encoder = LabelEncoder()
         self.movie_encoder = LabelEncoder()
 
@@ -55,7 +54,6 @@ class MLFlowRecModel(mlflow.pyfunc.PythonModel):
 
     def predict(self, context, model_input):
         preprocessed_df = self.preprocess(model_input)
-        print(model_input)
         users = torch.tensor(preprocessed_df["userIdEncoded"].values)
         movies = torch.tensor(preprocessed_df["movieIdEncoded"].values)
 
@@ -187,14 +185,8 @@ def train(
     mlflow.log_figure(figure=epochs_metrics_fig, artifact_file="epochs_metrics.png")
     plt.close(fig=epochs_metrics_fig)
 
-    code_paths = [
-        file_
-        for file_ in glob.glob(os.path.join("code_training", "*"))
-        if "cache" not in file_
-    ]
-
     mlflow_model = MLFlowRecModel(rec_sys_model=model)
 
     mlflow.pyfunc.log_model(
-        python_model=mlflow_model, artifact_path="model", code_paths=code_paths
+        python_model=mlflow_model, artifact_path="model", code_paths=["code_training"]
     )

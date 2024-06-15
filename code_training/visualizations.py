@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
 from matplotlib.figure import Figure
-from metric_utils import RunningTrainMetrics
+from .metric_utils import RunningTrainMetrics
 
 sns.set_style("darkgrid")
 

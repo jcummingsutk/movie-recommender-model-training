@@ -1,6 +1,6 @@
 model:
   lr: .001
-  num_epochs: 10
+  num_epochs: 100
 data:
   test_size: .15
   batch_size: 4

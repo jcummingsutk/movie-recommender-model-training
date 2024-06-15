@@ -28,6 +28,24 @@ def get_dev_db_params(
     return db_params_dict
 
 
+def get_movie_ids_to_include(df: pd.DataFrame, num_ratings_thresh: int) -> list[int]:
+    df_movie_grp = (
+        df.groupby("movieId")
+        .agg({"userId": len, "rating": "mean"})
+        .rename(
+            columns={
+                "userId": "num_ratings_for_movie",
+            }
+        )
+        .sort_values(by="num_ratings_for_movie")
+        .reset_index()
+    )
+    df_movie_grp_reduced = df_movie_grp[
+        df_movie_grp["num_ratings_for_movie"] > num_ratings_thresh
+    ]
+    return list(df_movie_grp_reduced["movieId"].unique())
+
+
 class MovieDataset(Dataset):
     def __init__(self, users, movies, ratings, device):
         self.users = users
