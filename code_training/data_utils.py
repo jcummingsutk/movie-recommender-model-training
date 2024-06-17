@@ -47,10 +47,11 @@ def get_movie_ids_to_include(df: pd.DataFrame, num_ratings_thresh: int) -> list[
 
 
 class MovieDataset(Dataset):
-    def __init__(self, users, movies, ratings, device):
+    def __init__(self, users, movies, ratings, mean_movie_groupby_ratings, device):
         self.users = users
         self.movies = movies
         self.ratings = ratings
+        self.mean_movie_groupby_ratings = mean_movie_groupby_ratings
         self.device = device
 
     def __len__(self):
@@ -60,10 +61,14 @@ class MovieDataset(Dataset):
         users = self.users[idx]
         movies = self.movies[idx]
         ratings = self.ratings[idx]
+        mean_movie_groupby_ratings = self.mean_movie_groupby_ratings[idx]
         return_dict = {
             "users": torch.tensor(users, dtype=torch.long).to(self.device),
             "movies": torch.tensor(movies, dtype=torch.long).to(self.device),
             "ratings": torch.tensor(ratings, dtype=torch.long).to(self.device),
+            "mean_movie_groupby_ratings": torch.tensor(
+                mean_movie_groupby_ratings, dtype=torch.float
+            ).to(self.device),
         }
         return return_dict
 
@@ -73,6 +78,7 @@ def _create_movie_dataset(df: pd.DataFrame, device):
         users=df["userIdEncoded"].values,
         movies=df["movieIdEncoded"].values,
         ratings=df["rating"].values,
+        mean_movie_groupby_ratings=df["mean_rating"].values,
         device=device,
     )
     return dataset
