@@ -60,6 +60,9 @@ def main(parameters_file: str, config_file: str, config_secrets_file: str):
 
     df_train, df_test = create_train_test_split(df, parameters["data"]["test_size"])
 
+    df_train.to_csv("data/df_train.csv")
+    df_test.to_csv("data/df_test.csv")
+
     train_loader, test_loader = create_dataloaders(
         df_train, df_test, device, parameters["data"]["batch_size"]
     )
@@ -83,21 +86,20 @@ if __name__ == "__main__":
 
     parameters_file = args.parameters_file
 
-    print(args.config_file)
-    print(args.config_secrets_file)
+    config_file = args.config_file
+    config_secrets_file = args.config_secrets_file
+    remote_tracking = args.remote_tracking
 
-    load_azure_service_principal_environment_vars(
-        args.config_file, args.config_secrets_file
-    )
+    load_azure_service_principal_environment_vars(config_file, config_secrets_file)
 
-    config_dict = get_config_dict(args.config_file)
+    config_dict = get_config_dict(config_file)
     subscription_id = config_dict["azure"]["dev"]["SUBSCRIPTION_ID"]
     resource_group = config_dict["azure"]["dev"]["RESOURCE_GROUP"]
     workspace_name = config_dict["azure"]["dev"]["WORKSPACE_NAME"]
 
     cred = EnvironmentCredential()
 
-    if args.remote_tracking == 1:
+    if remote_tracking == 1:
 
         ml_client = MLClient(
             subscription_id=subscription_id,

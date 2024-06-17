@@ -10,38 +10,72 @@ from sklearn.preprocessing import LabelEncoder
 from torch import nn
 from torch.utils.data import DataLoader
 from .visualizations import epoch_metrics_lineplot, training_mae_numexamples_lineplot
+import torch.nn.functional as F
 
 
 class RecSysModel(nn.Module):
-    def __init__(self, df: pd.DataFrame):
+    def __init__(
+        self,
+        df: pd.DataFrame,
+        user_id_col: str = "userId",
+        movie_id_col: str = "movieId",
+    ):
         super().__init__()
+
+        self.user_id_col = user_id_col
+        self.movie_id_col = movie_id_col
 
         self.user_encoder = LabelEncoder()
         self.movie_encoder = LabelEncoder()
 
-        self.user_encoder.fit_transform(df["userId"].values)
-        self.movie_encoder.fit_transform(df["movieId"].values)
+        self.user_encoder.fit_transform(df[self.user_id_col].values)
+        self.movie_encoder.fit_transform(df[self.movie_id_col].values)
 
         n_users = len(self.user_encoder.classes_)
         n_movies = len(self.movie_encoder.classes_)
 
-        self.user_embed = nn.Embedding(n_users, 32)
-        self.movie_embed = nn.Embedding(n_movies, 32)
+        self.mlp_user_embed = nn.Embedding(n_users, 16)
+        self.mlp_movie_embed = nn.Embedding(n_movies, 16)
 
-        self.out = nn.Linear(64, 1)
+        self.mlp_out1 = nn.Linear(32, 8)
+        self.mlp_out2 = nn.Linear(8, 1)
+
+        torch.nn.init.normal_(self.mlp_user_embed.weight.data, 0.0, 0.01)
+        torch.nn.init.normal_(self.mlp_movie_embed.weight.data, 0.0, 0.01)
+        torch.nn.init.normal_(self.mlp_out1.weight.data, 0.0, 0.01)
+        torch.nn.init.normal_(self.mlp_out2.weight.data, 0.0, 0.01)
 
     def preprocess_data(self, df: pd.DataFrame) -> pd.DataFrame:
-        df["userIdEncoded"] = self.user_encoder.transform(df["userId"].values)
+        df["userIdEncoded"] = self.user_encoder.transform(df[self.user_id_col].values)
         df["movieIdEncoded"] = self.movie_encoder.transform(df["movieId"].values)
+        df_movie_ratings = (
+            df.groupby(by="movieId")["rating"]
+            .agg("mean")
+            .reset_index()
+            .rename(columns={"rating": "mean_rating"})
+        )
+        df = pd.merge(df, df_movie_ratings, on="movieId")
         return df
 
     def forward(self, users, movies):  # , ratings=None
-        user_embeds = self.user_embed(users)
-        movie_embeds = self.movie_embed(movies)
-        output = torch.cat([user_embeds, movie_embeds], dim=1)
+        mlp_user_embeds = self.mlp_user_embed(users)
+        mlp_movie_embeds = self.mlp_movie_embed(movies)
 
-        output = self.out(output)
-        return output
+        mlp_out = torch.cat(
+            [
+                mlp_user_embeds,
+                mlp_movie_embeds,
+            ],
+            dim=1,
+        )
+        # raise ValueError
+
+        mlp_out = F.dropout(mlp_out, p=0.2)
+        mlp_out = F.relu(self.mlp_out1(mlp_out))
+        mlp_out = F.dropout(mlp_out, p=0.2)
+        mlp_out = F.relu(self.mlp_out2(mlp_out))
+
+        return mlp_out
 
 
 class MLFlowRecModel(mlflow.pyfunc.PythonModel):
@@ -63,12 +97,14 @@ class MLFlowRecModel(mlflow.pyfunc.PythonModel):
 def take_train_step(
     model, train_loader, loss_func, opt, running_metrics: RunningTrainMetrics
 ):
-    model.train()
     total_train_loss = 0
     total_outputs: torch.Tensor = None
     total_ratings: torch.Tensor = None
     for _, train_data in enumerate(train_loader):
-        output = model(train_data["users"], train_data["movies"])
+        output = model(
+            train_data["users"],
+            train_data["movies"],
+        )
         rating = torch.reshape(train_data["ratings"], (output.shape[0], -1)).to(
             torch.float32
         )
@@ -98,12 +134,15 @@ def take_train_step(
         raise ValueError("Error in calculation of the training loss")
 
 
-def get_train_metrics(model, train_loader):
+def get_train_metrics(model, train_loader) -> dict[str, Any]:
     total_training_outputs: torch.Tensor = None
     total_training_ratings: torch.Tensor = None
     with torch.set_grad_enabled(False):
         for _, train_data in enumerate(train_loader):
-            output = model(train_data["users"], train_data["movies"])
+            output = model(
+                train_data["users"],
+                train_data["movies"],
+            )
             rating = torch.reshape(train_data["ratings"], (output.shape[0], -1)).to(
                 torch.float32
             )
@@ -112,15 +151,18 @@ def get_train_metrics(model, train_loader):
 
     train_metric_dict = get_metrics_dict(total_training_outputs, total_training_ratings)
 
-    return train_metric_dict["mae"]
+    return train_metric_dict
 
 
-def get_val_metrics(model, test_loader, sch):
+def get_val_metrics(model, test_loader, sch) -> dict[str, Any]:
     total_testing_outputs: torch.Tensor = None
     total_testing_ratings: torch.Tensor = None
     with torch.set_grad_enabled(False):
         for _, test_data in enumerate(test_loader):
-            output = model(test_data["users"], test_data["movies"])
+            output = model(
+                test_data["users"],
+                test_data["movies"],
+            )
             rating = torch.reshape(test_data["ratings"], (output.shape[0], -1)).to(
                 torch.float32
             )
@@ -129,7 +171,7 @@ def get_val_metrics(model, test_loader, sch):
 
     test_metric_dict = get_metrics_dict(total_testing_outputs, total_testing_ratings)
     sch.step(test_metric_dict["mse"])
-    return test_metric_dict["mae"]
+    return test_metric_dict
 
 
 def train(
@@ -139,9 +181,12 @@ def train(
     model_params: dict[str, Any],
     metric_params: dict[str, Any],
 ):
-    opt = torch.optim.Adam(model.parameters(), model_params["lr"])
+    opt = torch.optim.Adam(
+        model.parameters(),
+        model_params["lr"],
+    )
     sch = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer=opt, mode="min", patience=2
+        optimizer=opt, mode="min", patience=4
     )
     loss_func = nn.MSELoss(reduction="sum")
 
@@ -161,18 +206,26 @@ def train(
         "epoch_num": [],
         "test_mae": [],
         "train_mae": [],
+        "train_rmse": [],
+        "test_rmse": [],
     }
     for epoch in range(epochs):
         print(f"epoch {epoch}")
         print(f"current learning rate: {opt.param_groups[0]['lr']}")
+        model.train()
         take_train_step(model, train_loader, loss_func, opt, running_training_metrics)
         model.eval()
-        train_mae = get_train_metrics(model, train_loader)
-        test_mae = get_val_metrics(model, test_loader, sch)
+        test_metric_dict = get_train_metrics(model, train_loader)
+        train_metric_dict = get_val_metrics(model, test_loader, sch)
         epoch_metrics_dict["epoch_num"].append(epoch)
-        epoch_metrics_dict["test_mae"].append(test_mae)
-        epoch_metrics_dict["train_mae"].append(train_mae)
-        print(epoch_metrics_dict)
+        epoch_metrics_dict["test_mae"].append(train_metric_dict["mae"])
+        epoch_metrics_dict["train_mae"].append(test_metric_dict["mae"])
+        epoch_metrics_dict["train_rmse"].append(np.sqrt(train_metric_dict["mse"]))
+        epoch_metrics_dict["test_rmse"].append(np.sqrt(test_metric_dict["mse"]))
+        for key, val in epoch_metrics_dict.items():
+            print(key)
+            print(val)
+            print("----")
     running_train_metrics_fig = training_mae_numexamples_lineplot(
         running_metrics=running_training_metrics
     )
@@ -184,6 +237,11 @@ def train(
     epochs_metrics_fig = epoch_metrics_lineplot(epochs_metric_df)
     mlflow.log_figure(figure=epochs_metrics_fig, artifact_file="epochs_metrics.png")
     plt.close(fig=epochs_metrics_fig)
+
+    mlflow.log_metric("test_mae", epoch_metrics_dict["test_mae"][-1])
+    mlflow.log_metric("train_mae", epoch_metrics_dict["train_mae"][-1])
+    mlflow.log_metric("train_rmse", epoch_metrics_dict["train_rmse"][-1])
+    mlflow.log_metric("test_rmse", epoch_metrics_dict["test_rmse"][-1])
 
     mlflow_model = MLFlowRecModel(rec_sys_model=model)
 
