@@ -56,6 +56,8 @@ def main(parameters_file: str, config_file: str, config_secrets_file: str):
 
     df = model.preprocess_data(df)
 
+    print(df.info())
+
     df_train, df_test = create_train_test_split(df, parameters["data"]["test_size"])
 
     train_loader, test_loader = create_dataloaders(
@@ -76,6 +78,7 @@ if __name__ == "__main__":
     parser.add_argument("--parameters-file", type=str)
     parser.add_argument("--config-file", type=str)
     parser.add_argument("--config-secrets-file", type=str)
+    parser.add_argument("--remote-tracking", type=int)
     args = parser.parse_args()
 
     parameters_file = args.parameters_file
@@ -94,18 +97,20 @@ if __name__ == "__main__":
 
     cred = EnvironmentCredential()
 
-    ml_client = MLClient(
-        subscription_id=subscription_id,
-        resource_group_name=resource_group,
-        workspace_name=workspace_name,
-        credential=cred,
-    )
+    if args.remote_tracking == 1:
 
-    mlflow_tracking_uri = ml_client.workspaces.get(
-        ml_client.workspace_name
-    ).mlflow_tracking_uri
+        ml_client = MLClient(
+            subscription_id=subscription_id,
+            resource_group_name=resource_group,
+            workspace_name=workspace_name,
+            credential=cred,
+        )
 
-    mlflow.set_tracking_uri(mlflow_tracking_uri)
+        mlflow_tracking_uri = ml_client.workspaces.get(
+            ml_client.workspace_name
+        ).mlflow_tracking_uri
+
+        mlflow.set_tracking_uri(mlflow_tracking_uri)
 
     mlflow.set_experiment("movie-recommender-model-training")
 
