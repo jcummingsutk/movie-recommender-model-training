@@ -4,7 +4,6 @@ from typing import Any
 import torch
 from torch import Tensor
 from torch.nn.functional import l1_loss, mse_loss
-import numpy as np
 
 
 def concat_results(

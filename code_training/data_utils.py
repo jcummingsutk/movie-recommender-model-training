@@ -103,6 +103,44 @@ def load_dataframe(
     return df
 
 
+def load_test_dataframe(
+    host: str, database: str, user: str, password: str, port: int
+) -> pd.DataFrame:
+    conn = psycopg2.connect(
+        host=host,
+        database=database,
+        user=user,
+        password=password,
+        port=port,
+    )
+    conn.set_session(autocommit=True)
+    engine = create_engine(
+        f"postgresql://{user}:{password}@{host}:{port}/{database}",
+        connect_args={"sslmode": "require"},
+    )
+    df = pd.read_sql("SELECT * FROM ratings_test", con=engine)
+    return df
+
+
+def load_train_dataframe(
+    host: str, database: str, user: str, password: str, port: int
+) -> pd.DataFrame:
+    conn = psycopg2.connect(
+        host=host,
+        database=database,
+        user=user,
+        password=password,
+        port=port,
+    )
+    conn.set_session(autocommit=True)
+    engine = create_engine(
+        f"postgresql://{user}:{password}@{host}:{port}/{database}",
+        connect_args={"sslmode": "require"},
+    )
+    df = pd.read_sql("SELECT * FROM ratings_train", con=engine)
+    return df
+
+
 def create_dataloaders(
     df_train: pd.DataFrame, df_test: pd.DataFrame, device: str, batch_size: int
 ) -> tuple[DataLoader, DataLoader]:
