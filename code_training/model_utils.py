@@ -34,16 +34,20 @@ class RecSysModel(nn.Module):
         n_users = len(self.user_encoder.classes_)
         n_movies = len(self.movie_encoder.classes_)
 
-        self.mlp_user_embed = nn.Embedding(n_users, 16)
-        self.mlp_movie_embed = nn.Embedding(n_movies, 16)
+        self.mlp_user_embed = nn.Embedding(n_users, 8)
+        self.mlp_movie_embed = nn.Embedding(n_movies, 8)
 
-        self.mlp_out1 = nn.Linear(32, 8)
-        self.mlp_out2 = nn.Linear(8, 1)
+        # self.mlp_out0 = nn.Linear(16, 16)
+        # self.mlp_out1 = nn.Linear(16, 16)
+        self.mlp_out2 = nn.Linear(16, 4)
+        self.mlp_out3 = nn.Linear(4, 1)
 
         torch.nn.init.normal_(self.mlp_user_embed.weight.data, 0.0, 0.01)
         torch.nn.init.normal_(self.mlp_movie_embed.weight.data, 0.0, 0.01)
-        torch.nn.init.normal_(self.mlp_out1.weight.data, 0.0, 0.01)
+        # torch.nn.init.normal_(self.mlp_out0.weight.data, 0.0, 0.01)
+        # torch.nn.init.normal_(self.mlp_out1.weight.data, 0.0, 0.01)
         torch.nn.init.normal_(self.mlp_out2.weight.data, 0.0, 0.01)
+        torch.nn.init.normal_(self.mlp_out3.weight.data, 0.0, 0.01)
 
     def preprocess_data(self, df: pd.DataFrame) -> pd.DataFrame:
         df["userIdEncoded"] = self.user_encoder.transform(df[self.user_id_col].values)
@@ -68,12 +72,17 @@ class RecSysModel(nn.Module):
             ],
             dim=1,
         )
-        # raise ValueError
+        # mlp_out = F.dropout(mlp_out, p=0.2)
+        # mlp_out = F.relu(self.mlp_out0(mlp_out))
+
+        # mlp_out = F.dropout(mlp_out, p=0.2)
+        # mlp_out = F.relu(self.mlp_out1(mlp_out))
 
         mlp_out = F.dropout(mlp_out, p=0.2)
-        mlp_out = F.relu(self.mlp_out1(mlp_out))
-        mlp_out = F.dropout(mlp_out, p=0.2)
         mlp_out = F.relu(self.mlp_out2(mlp_out))
+
+        # mlp_out = F.dropout(mlp_out, p=0.2)
+        mlp_out = self.mlp_out3(mlp_out)
 
         return mlp_out
 
@@ -170,8 +179,53 @@ def get_val_metrics(model, test_loader, sch) -> dict[str, Any]:
             total_testing_ratings = concat_results(total_testing_ratings, rating)
 
     test_metric_dict = get_metrics_dict(total_testing_outputs, total_testing_ratings)
-    sch.step(test_metric_dict["mse"])
+
     return test_metric_dict
+
+
+def update_metrics(model, train_loader, test_loader, sch, epoch_metrics_dict, epoch):
+    test_metric_dict = get_train_metrics(model, train_loader)
+    train_metric_dict = get_val_metrics(model, test_loader, sch)
+    sch.step(test_metric_dict["mse"])
+    # sch.step()
+    epoch_metrics_dict["epoch_num"].append(epoch)
+    epoch_metrics_dict["test_mae"].append(train_metric_dict["mae"])
+    epoch_metrics_dict["train_mae"].append(test_metric_dict["mae"])
+    epoch_metrics_dict["train_rmse"].append(np.sqrt(train_metric_dict["mse"]))
+    epoch_metrics_dict["test_rmse"].append(np.sqrt(test_metric_dict["mse"]))
+    for key, val in epoch_metrics_dict.items():
+        print(key)
+        print(val)
+        print("----")
+
+
+def log_model_and_metrics(
+    running_training_metrics: RunningTrainMetrics,
+    epoch_metrics_dict,
+    model,
+):
+    running_train_metrics_fig = training_mae_numexamples_lineplot(
+        running_metrics=running_training_metrics
+    )
+    mlflow.log_figure(
+        figure=running_train_metrics_fig, artifact_file="training_loss.png"
+    )
+    plt.close(fig=running_train_metrics_fig)
+    epochs_metric_df = pd.DataFrame(epoch_metrics_dict)
+    epochs_metrics_fig = epoch_metrics_lineplot(epochs_metric_df)
+    mlflow.log_figure(figure=epochs_metrics_fig, artifact_file="epochs_metrics.png")
+    plt.close(fig=epochs_metrics_fig)
+
+    mlflow.log_metric("test_mae", epoch_metrics_dict["test_mae"][-1])
+    mlflow.log_metric("train_mae", epoch_metrics_dict["train_mae"][-1])
+    mlflow.log_metric("train_rmse", epoch_metrics_dict["train_rmse"][-1])
+    mlflow.log_metric("test_rmse", epoch_metrics_dict["test_rmse"][-1])
+
+    mlflow_model = MLFlowRecModel(rec_sys_model=model)
+
+    mlflow.pyfunc.log_model(
+        python_model=mlflow_model, artifact_path="model", code_paths=["code_training"]
+    )
 
 
 def train(
@@ -201,50 +255,19 @@ def train(
         ratings_since_record=None,
         train_examples_num=[],
         train_maes=[],
-    )
+    )  # every n examples, I'll record the mae with this custom object
     epoch_metrics_dict = {
         "epoch_num": [],
         "test_mae": [],
         "train_mae": [],
         "train_rmse": [],
         "test_rmse": [],
-    }
+    }  # To track the metrics per epoch
     for epoch in range(epochs):
         print(f"epoch {epoch}")
         print(f"current learning rate: {opt.param_groups[0]['lr']}")
         model.train()
         take_train_step(model, train_loader, loss_func, opt, running_training_metrics)
         model.eval()
-        test_metric_dict = get_train_metrics(model, train_loader)
-        train_metric_dict = get_val_metrics(model, test_loader, sch)
-        epoch_metrics_dict["epoch_num"].append(epoch)
-        epoch_metrics_dict["test_mae"].append(train_metric_dict["mae"])
-        epoch_metrics_dict["train_mae"].append(test_metric_dict["mae"])
-        epoch_metrics_dict["train_rmse"].append(np.sqrt(train_metric_dict["mse"]))
-        epoch_metrics_dict["test_rmse"].append(np.sqrt(test_metric_dict["mse"]))
-        for key, val in epoch_metrics_dict.items():
-            print(key)
-            print(val)
-            print("----")
-    running_train_metrics_fig = training_mae_numexamples_lineplot(
-        running_metrics=running_training_metrics
-    )
-    mlflow.log_figure(
-        figure=running_train_metrics_fig, artifact_file="training_loss.png"
-    )
-    plt.close(fig=running_train_metrics_fig)
-    epochs_metric_df = pd.DataFrame(epoch_metrics_dict)
-    epochs_metrics_fig = epoch_metrics_lineplot(epochs_metric_df)
-    mlflow.log_figure(figure=epochs_metrics_fig, artifact_file="epochs_metrics.png")
-    plt.close(fig=epochs_metrics_fig)
-
-    mlflow.log_metric("test_mae", epoch_metrics_dict["test_mae"][-1])
-    mlflow.log_metric("train_mae", epoch_metrics_dict["train_mae"][-1])
-    mlflow.log_metric("train_rmse", epoch_metrics_dict["train_rmse"][-1])
-    mlflow.log_metric("test_rmse", epoch_metrics_dict["test_rmse"][-1])
-
-    mlflow_model = MLFlowRecModel(rec_sys_model=model)
-
-    mlflow.pyfunc.log_model(
-        python_model=mlflow_model, artifact_path="model", code_paths=["code_training"]
-    )
+        update_metrics(model, train_loader, test_loader, sch, epoch_metrics_dict, epoch)
+    log_model_and_metrics(running_training_metrics, epoch_metrics_dict, model)
