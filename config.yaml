@@ -8,7 +8,7 @@ database:
     host: db-movie-recommender-do-user-16701211-0.c.db.ondigitalocean.com
     user: doadmin
     port: 25060
-    database: dev_25M
+    database: dev_25m
 azure:
   dev:
     MLFLOW_TRACKING_URI: azureml://eastus2.api.azureml.ms/mlflow/v1.0/subscriptions/94f3bfe4-d65b-4af2-959a-f4cc3f4fef6a/resourceGroups/movie-recommender/providers/Microsoft.MachineLearningServices/workspaces/movie-recommender-dev

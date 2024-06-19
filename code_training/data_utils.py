@@ -28,6 +28,24 @@ def get_dev_db_params(
     return db_params_dict
 
 
+def get_dev_db_25M_params(
+    config_file: str = "config.yaml", config_secret: str = None
+) -> dict[str, Any]:
+    with open(config_file, "r") as fp_config:
+        config = yaml.safe_load(fp_config)
+    db_params_dict = config["database"]["dev_25M"]
+
+    if config_secret is not None:
+        with open(config_secret, "r") as fp_secret_config:
+            config_secret_dict = yaml.safe_load(fp_secret_config)
+        password = config_secret_dict["database"]["dev"]["password"]
+    else:
+        password = os.environ["DATABASE_PASSWORD"]
+    db_params_dict["password"] = password
+
+    return db_params_dict
+
+
 def get_movie_ids_to_include(df: pd.DataFrame, num_ratings_thresh: int) -> list[int]:
     df_movie_grp = (
         df.groupby("movieId")
@@ -47,11 +65,10 @@ def get_movie_ids_to_include(df: pd.DataFrame, num_ratings_thresh: int) -> list[
 
 
 class MovieDataset(Dataset):
-    def __init__(self, users, movies, ratings, mean_movie_groupby_ratings, device):
+    def __init__(self, users, movies, ratings, device):
         self.users = users
         self.movies = movies
         self.ratings = ratings
-        self.mean_movie_groupby_ratings = mean_movie_groupby_ratings
         self.device = device
 
     def __len__(self):
@@ -61,14 +78,10 @@ class MovieDataset(Dataset):
         users = self.users[idx]
         movies = self.movies[idx]
         ratings = self.ratings[idx]
-        mean_movie_groupby_ratings = self.mean_movie_groupby_ratings[idx]
         return_dict = {
             "users": torch.tensor(users, dtype=torch.long).to(self.device),
             "movies": torch.tensor(movies, dtype=torch.long).to(self.device),
             "ratings": torch.tensor(ratings, dtype=torch.long).to(self.device),
-            "mean_movie_groupby_ratings": torch.tensor(
-                mean_movie_groupby_ratings, dtype=torch.float
-            ).to(self.device),
         }
         return return_dict
 
@@ -78,10 +91,28 @@ def _create_movie_dataset(df: pd.DataFrame, device):
         users=df["userIdEncoded"].values,
         movies=df["movieIdEncoded"].values,
         ratings=df["rating"].values,
-        mean_movie_groupby_ratings=df["mean_rating"].values,
         device=device,
     )
     return dataset
+
+
+def get_table_from_database(
+    host: str, database: str, user: str, password: str, port: int, table: str
+) -> pd.DataFrame:
+    conn = psycopg2.connect(
+        host=host,
+        database=database,
+        user=user,
+        password=password,
+        port=port,
+    )
+    conn.set_session(autocommit=True)
+    engine = create_engine(
+        f"postgresql://{user}:{password}@{host}:{port}/{database}",
+        connect_args={"sslmode": "require"},
+    )
+    df = pd.read_sql(f"SELECT * FROM {table}", con=engine)
+    return df
 
 
 def load_dataframe(
@@ -100,44 +131,6 @@ def load_dataframe(
         connect_args={"sslmode": "require"},
     )
     df = pd.read_sql("SELECT * FROM ratings", con=engine)
-    return df
-
-
-def load_test_dataframe(
-    host: str, database: str, user: str, password: str, port: int
-) -> pd.DataFrame:
-    conn = psycopg2.connect(
-        host=host,
-        database=database,
-        user=user,
-        password=password,
-        port=port,
-    )
-    conn.set_session(autocommit=True)
-    engine = create_engine(
-        f"postgresql://{user}:{password}@{host}:{port}/{database}",
-        connect_args={"sslmode": "require"},
-    )
-    df = pd.read_sql("SELECT * FROM ratings_test", con=engine)
-    return df
-
-
-def load_train_dataframe(
-    host: str, database: str, user: str, password: str, port: int
-) -> pd.DataFrame:
-    conn = psycopg2.connect(
-        host=host,
-        database=database,
-        user=user,
-        password=password,
-        port=port,
-    )
-    conn.set_session(autocommit=True)
-    engine = create_engine(
-        f"postgresql://{user}:{password}@{host}:{port}/{database}",
-        connect_args={"sslmode": "require"},
-    )
-    df = pd.read_sql("SELECT * FROM ratings_train", con=engine)
     return df
 
 

@@ -163,3 +163,4 @@ config_secret.yaml
 notebooks
 mlruns
 downloaded_model
+in_progress

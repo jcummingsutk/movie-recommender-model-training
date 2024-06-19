@@ -52,13 +52,6 @@ class RecSysModel(nn.Module):
     def preprocess_data(self, df: pd.DataFrame) -> pd.DataFrame:
         df["userIdEncoded"] = self.user_encoder.transform(df[self.user_id_col].values)
         df["movieIdEncoded"] = self.movie_encoder.transform(df["movieId"].values)
-        df_movie_ratings = (
-            df.groupby(by="movieId")["rating"]
-            .agg("mean")
-            .reset_index()
-            .rename(columns={"rating": "mean_rating"})
-        )
-        df = pd.merge(df, df_movie_ratings, on="movieId")
         return df
 
     def forward(self, users, movies):  # , ratings=None
@@ -163,7 +156,7 @@ def get_train_metrics(model, train_loader) -> dict[str, Any]:
     return train_metric_dict
 
 
-def get_val_metrics(model, test_loader, sch) -> dict[str, Any]:
+def get_val_metrics(model, test_loader) -> dict[str, Any]:
     total_testing_outputs: torch.Tensor = None
     total_testing_ratings: torch.Tensor = None
     with torch.set_grad_enabled(False):
@@ -255,7 +248,7 @@ def train(
         ratings_since_record=None,
         train_examples_num=[],
         train_maes=[],
-    )  # every n examples, I'll record the mae with this custom object
+    )  # after every n examples, I'll record the mae with this custom object
     epoch_metrics_dict = {
         "epoch_num": [],
         "test_mae": [],
