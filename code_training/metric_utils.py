@@ -4,6 +4,36 @@ from typing import Any
 import torch
 from torch import Tensor
 from torch.nn.functional import l1_loss, mse_loss
+import pandas as pd
+
+
+def r_precisions_at_k(
+    df: pd.DataFrame,
+    relevant_rating_thresh: float,
+    k: float,
+) -> float:
+    user_ids = df["userId"].unique()
+    r_precisions = []
+    nums_to_consider = []
+    for user_id in user_ids:
+        df_this_user: pd.DataFrame = df[df["userId"] == user_id].copy()
+        df_this_user["relevant"] = (df["rating"] >= relevant_rating_thresh).astype(int)
+
+        num_relevant_movies = df_this_user["relevant"].sum()
+        num_to_consider = min(num_relevant_movies, k)
+
+        df_this_user_top_recs = df_this_user.sort_values(
+            by="prediction", ascending=False
+        ).head(num_to_consider)
+
+        df_this_user_top_recs["predicted_relevant"] = (
+            df_this_user_top_recs["prediction"] >= relevant_rating_thresh
+        ).astype(int)
+        relevant_and_recommended = df_this_user_top_recs["relevant"].sum()
+        nums_to_consider.append(num_to_consider)
+        if num_to_consider > 0:
+            r_precisions.append(relevant_and_recommended / num_to_consider)
+    return r_precisions, nums_to_consider
 
 
 def concat_results(
@@ -30,6 +60,16 @@ def get_metrics_dict(outputs: Tensor, ratings: Tensor) -> dict[str, Any]:
         "mae": mae_metric(outputs, ratings),
         "mse": mse_metric(outputs, ratings),
     }
+
+
+def avg_r_precision(
+    df: pd.DataFrame, model, device: str, relevant_thresh: float
+) -> float:
+    user_ids = df["userId"].unique()
+    for user_id in user_ids:
+        df_this_user = df[df["userId"] == user_id]
+        df_this_user = df_this_user["rating"] >= relevant_thresh
+    return
 
 
 @dataclass

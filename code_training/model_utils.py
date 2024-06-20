@@ -13,15 +13,44 @@ from .visualizations import epoch_metrics_lineplot, training_mae_numexamples_lin
 import torch.nn.functional as F
 
 
-class RecSysModel(nn.Module):
+# def avg_r_precision(
+#     df: pd.DataFrame, model: nn.Module, device: str, relevant_rating_thresh: float
+# ) -> float:
+#     user_ids = df["userId"].unique()
+#     r_precisions = []
+#     model = model.to(device)
+#     for user_id in user_ids:
+#         df_this_user = df[df["userId"] == user_id]
+#         movies = torch.tensor(df_this_user["movieIdEncoded"].values).to(device)
+#         users = torch.tensor(df_this_user["userIdEncoded"].values).to(device)
+#         print(user_id)
+#         predictions: Tensor = model(users, movies)
+#         predictions_np = predictions.detach().cpu().detach()
+#         df_this_user["prediction"] = predictions_np
+#         df_this_user["relevant"] = df["rating"] >= relevant_rating_thresh
+#         num_relevant_movies = df_this_user["relevant"].sum()
+#         df_this_user = df_this_user.sort_values(by="prediction").head(
+#             num_relevant_movies
+#         )
+#         df_this_user["predicted_relevant"] = (
+#             df_this_user["prediction"] >= relevant_rating_thresh
+#         )
+#         num_predicted_relevant = df_this_user["predicted_relevant"].sum()
+#         if num_relevant_movies > 0:
+#             r_precisions.append(
+#                 float(num_predicted_relevant) / float(num_relevant_movies)
+#             )
+
+#     return np.mean(r_precisions)
+
+
+class Preprocessor:
     def __init__(
         self,
         df: pd.DataFrame,
         user_id_col: str = "userId",
         movie_id_col: str = "movieId",
     ):
-        super().__init__()
-
         self.user_id_col = user_id_col
         self.movie_id_col = movie_id_col
 
@@ -31,14 +60,36 @@ class RecSysModel(nn.Module):
         self.user_encoder.fit_transform(df[self.user_id_col].values)
         self.movie_encoder.fit_transform(df[self.movie_id_col].values)
 
-        n_users = len(self.user_encoder.classes_)
-        n_movies = len(self.movie_encoder.classes_)
+    def transform(self, df: pd.DataFrame) -> pd.DataFrame:
+        df["userIdEncoded"] = self.user_encoder.transform(df["userId"])
+        df["movieIdEncoded"] = self.movie_encoder.transform(df["movieId"])
+        return df
+
+
+class MLFlowPreprocessor(mlflow.pyfunc.PythonModel):
+    def __init__(self, preprocessor: Preprocessor):
+        self.preprocessor = preprocessor
+
+    def preprocess(self, data: pd.DataFrame) -> pd.DataFrame:
+        data = self.rec_sys_model.preprocess_data(data)
+        return data
+
+    def predict(self, context, model_input):
+        preprocessed_df = self.preprocessor.transform(model_input)
+
+        return preprocessed_df
+
+
+class RecSysModel(nn.Module):
+    def __init__(self, n_users: int, n_movies: int):
+        super().__init__()
 
         self.mlp_user_embed = nn.Embedding(n_users, 8)
         self.mlp_movie_embed = nn.Embedding(n_movies, 8)
 
         # self.mlp_out0 = nn.Linear(16, 16)
         # self.mlp_out1 = nn.Linear(16, 16)
+        self.dropout = nn.Dropout(0.2)
         self.mlp_out2 = nn.Linear(16, 4)
         self.mlp_out3 = nn.Linear(4, 1)
 
@@ -48,11 +99,6 @@ class RecSysModel(nn.Module):
         # torch.nn.init.normal_(self.mlp_out1.weight.data, 0.0, 0.01)
         torch.nn.init.normal_(self.mlp_out2.weight.data, 0.0, 0.01)
         torch.nn.init.normal_(self.mlp_out3.weight.data, 0.0, 0.01)
-
-    def preprocess_data(self, df: pd.DataFrame) -> pd.DataFrame:
-        df["userIdEncoded"] = self.user_encoder.transform(df[self.user_id_col].values)
-        df["movieIdEncoded"] = self.movie_encoder.transform(df["movieId"].values)
-        return df
 
     def forward(self, users, movies):  # , ratings=None
         mlp_user_embeds = self.mlp_user_embed(users)
@@ -71,7 +117,7 @@ class RecSysModel(nn.Module):
         # mlp_out = F.dropout(mlp_out, p=0.2)
         # mlp_out = F.relu(self.mlp_out1(mlp_out))
 
-        mlp_out = F.dropout(mlp_out, p=0.2)
+        mlp_out = self.dropout(mlp_out)
         mlp_out = F.relu(self.mlp_out2(mlp_out))
 
         # mlp_out = F.dropout(mlp_out, p=0.2)
@@ -89,10 +135,8 @@ class MLFlowRecModel(mlflow.pyfunc.PythonModel):
         return data
 
     def predict(self, context, model_input):
-        preprocessed_df = self.preprocess(model_input)
-        users = torch.tensor(preprocessed_df["userIdEncoded"].values)
-        movies = torch.tensor(preprocessed_df["movieIdEncoded"].values)
-
+        users = torch.tensor(model_input["userIdEncoded"].values)
+        movies = torch.tensor(model_input["movieIdEncoded"].values)
         return self.rec_sys_model(users, movies)
 
 
@@ -178,7 +222,7 @@ def get_val_metrics(model, test_loader) -> dict[str, Any]:
 
 def update_metrics(model, train_loader, test_loader, sch, epoch_metrics_dict, epoch):
     test_metric_dict = get_train_metrics(model, train_loader)
-    train_metric_dict = get_val_metrics(model, test_loader, sch)
+    train_metric_dict = get_val_metrics(model, test_loader)
     sch.step(test_metric_dict["mse"])
     # sch.step()
     epoch_metrics_dict["epoch_num"].append(epoch)
@@ -195,8 +239,9 @@ def update_metrics(model, train_loader, test_loader, sch, epoch_metrics_dict, ep
 def log_model_and_metrics(
     running_training_metrics: RunningTrainMetrics,
     epoch_metrics_dict,
-    model,
+    model: nn.Module,
 ):
+    model.eval()
     running_train_metrics_fig = training_mae_numexamples_lineplot(
         running_metrics=running_training_metrics
     )
