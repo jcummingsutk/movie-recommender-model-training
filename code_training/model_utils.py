@@ -5,13 +5,13 @@ import mlflow
 import numpy as np
 import pandas as pd
 import torch
-from .metric_utils import RunningTrainMetrics, concat_results, get_metrics_dict
+import torch.nn.functional as F
 from sklearn.preprocessing import LabelEncoder
 from torch import nn
 from torch.utils.data import DataLoader
-from .visualizations import epoch_metrics_lineplot, training_mae_numexamples_lineplot
-import torch.nn.functional as F
 
+from .metric_utils import RunningTrainMetrics, concat_results, get_metrics_dict
+from .visualizations import epoch_metrics_lineplot, training_mae_numexamples_lineplot
 
 # def avg_r_precision(
 #     df: pd.DataFrame, model: nn.Module, device: str, relevant_rating_thresh: float
@@ -91,6 +91,7 @@ class RecSysModel(nn.Module):
         # self.mlp_out1 = nn.Linear(16, 16)
         self.dropout = nn.Dropout(0.2)
         self.mlp_out2 = nn.Linear(16, 4)
+        self.relu2 = nn.ReLU()
         self.mlp_out3 = nn.Linear(4, 1)
 
         torch.nn.init.normal_(self.mlp_user_embed.weight.data, 0.0, 0.01)
@@ -118,7 +119,8 @@ class RecSysModel(nn.Module):
         # mlp_out = F.relu(self.mlp_out1(mlp_out))
 
         mlp_out = self.dropout(mlp_out)
-        mlp_out = F.relu(self.mlp_out2(mlp_out))
+        mlp_out = self.mlp_out2(mlp_out)
+        mlp_out = self.relu2(mlp_out)
 
         # mlp_out = F.dropout(mlp_out, p=0.2)
         mlp_out = self.mlp_out3(mlp_out)
@@ -278,7 +280,7 @@ def train(
         model_params["lr"],
     )
     sch = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer=opt, mode="min", patience=4
+        optimizer=opt, mode="min", patience=5
     )
     loss_func = nn.MSELoss(reduction="sum")
 

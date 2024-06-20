@@ -14,8 +14,15 @@ from code_training.data_utils import (
     get_dev_db_params,
     get_table_from_database,
 )
-from code_training.model_utils import RecSysModel, train
 from argparse import Namespace
+from code_training.model_utils import (
+    RecSysModel,
+    train,
+    Preprocessor,
+    MLFlowPreprocessor,
+)
+from code_training.metric_utils import r_precisions_at_k
+import numpy as np
 
 
 def setup_data_and_train(
@@ -33,16 +40,24 @@ def setup_data_and_train(
     df_test = get_table_from_database(**params, table="ratings_test")
     df_train = get_table_from_database(**params, table="ratings_train")
 
-    model = RecSysModel(df).to(device)
+    preprocessor = Preprocessor(df)
+    df = preprocessor.transform(df)
+    df_train = preprocessor.transform(df_train)
+    df_test = preprocessor.transform(df_test)
 
-    df = model.preprocess_data(df)
-    df_train = model.preprocess_data(df_train)
-    df_test = model.preprocess_data(df_test)
+    model = RecSysModel(
+        len(preprocessor.user_encoder.classes_),
+        len(preprocessor.movie_encoder.classes_),
+    ).to(device)
+
+    print(model)
 
     train_loader, test_loader = create_dataloaders(
         df_train, df_test, device, parameters["data"]["batch_size"]
     )
 
+    relevant_threshold = parameters["metrics"]["relevant_thresh"]
+    top_k = parameters["metrics"]["top_k"]
     train(
         model,
         train_loader,
@@ -50,6 +65,22 @@ def setup_data_and_train(
         model_params=parameters["model"],
         metric_params=parameters["metrics"],
     )
+    mlflow_preprocessor = MLFlowPreprocessor(preprocessor)
+    mlflow.pyfunc.log_model(
+        python_model=mlflow_preprocessor,
+        artifact_path="preprocessor",
+        code_paths=["code_training"],
+    )
+
+    users = torch.tensor(df["userIdEncoded"].values).to("cpu")
+    movies = torch.tensor(df["movieIdEncoded"].values).to("cpu")
+
+    predictions = model(users, movies)
+    predictions_np = predictions.detach().cpu().detach()
+    df["prediction"] = predictions_np
+
+    r_precisions, _ = r_precisions_at_k(df, relevant_threshold, top_k)
+    mlflow.log_metric(f"r_precision_at_{top_k}", np.mean(r_precisions))
 
 
 def parse_args() -> Namespace:
