@@ -160,8 +160,8 @@ cython_debug/
 #.idea/
 
 config_secret.yaml
-notebooks
 mlruns
 downloaded_model
 in_progress
 downloaded_preprocessor
+notebooks_local

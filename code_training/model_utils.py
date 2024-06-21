@@ -5,7 +5,6 @@ import mlflow
 import numpy as np
 import pandas as pd
 import torch
-import torch.nn.functional as F
 from sklearn.preprocessing import LabelEncoder
 from torch import nn
 from torch.utils.data import DataLoader
@@ -87,17 +86,27 @@ class RecSysModel(nn.Module):
         self.mlp_user_embed = nn.Embedding(n_users, 8)
         self.mlp_movie_embed = nn.Embedding(n_movies, 8)
 
-        # self.mlp_out0 = nn.Linear(16, 16)
-        # self.mlp_out1 = nn.Linear(16, 16)
-        self.dropout = nn.Dropout(0.2)
+        self.dropout0 = nn.Dropout(0.2)
+        self.mlp_out0 = nn.Linear(16, 16)
+        self.relu0 = nn.ReLU()
+        self.batch_norm0 = nn.BatchNorm1d(16)
+
+        self.dropout1 = nn.Dropout(0.2)
+        self.mlp_out1 = nn.Linear(16, 16)
+        self.relu1 = nn.ReLU()
+        self.batch_norm1 = nn.BatchNorm1d(16)
+
+        self.dropout2 = nn.Dropout(0.2)
         self.mlp_out2 = nn.Linear(16, 4)
         self.relu2 = nn.ReLU()
+        self.batch_norm2 = nn.BatchNorm1d(4)
+
         self.mlp_out3 = nn.Linear(4, 1)
 
         torch.nn.init.normal_(self.mlp_user_embed.weight.data, 0.0, 0.01)
         torch.nn.init.normal_(self.mlp_movie_embed.weight.data, 0.0, 0.01)
-        # torch.nn.init.normal_(self.mlp_out0.weight.data, 0.0, 0.01)
-        # torch.nn.init.normal_(self.mlp_out1.weight.data, 0.0, 0.01)
+        torch.nn.init.normal_(self.mlp_out0.weight.data, 0.0, 0.01)
+        torch.nn.init.normal_(self.mlp_out1.weight.data, 0.0, 0.01)
         torch.nn.init.normal_(self.mlp_out2.weight.data, 0.0, 0.01)
         torch.nn.init.normal_(self.mlp_out3.weight.data, 0.0, 0.01)
 
@@ -112,15 +121,21 @@ class RecSysModel(nn.Module):
             ],
             dim=1,
         )
-        # mlp_out = F.dropout(mlp_out, p=0.2)
-        # mlp_out = F.relu(self.mlp_out0(mlp_out))
 
-        # mlp_out = F.dropout(mlp_out, p=0.2)
-        # mlp_out = F.relu(self.mlp_out1(mlp_out))
+        mlp_out = self.dropout0(mlp_out)
+        mlp_out = self.mlp_out0(mlp_out)
+        mlp_out = self.relu0(mlp_out)
+        mlp_out = self.batch_norm0(mlp_out)
 
-        mlp_out = self.dropout(mlp_out)
+        mlp_out = self.dropout1(mlp_out)
+        mlp_out = self.mlp_out1(mlp_out)
+        mlp_out = self.relu1(mlp_out)
+        mlp_out = self.batch_norm1(mlp_out)
+
+        mlp_out = self.dropout2(mlp_out)
         mlp_out = self.mlp_out2(mlp_out)
         mlp_out = self.relu2(mlp_out)
+        mlp_out = self.batch_norm2(mlp_out)
 
         # mlp_out = F.dropout(mlp_out, p=0.2)
         mlp_out = self.mlp_out3(mlp_out)
@@ -223,13 +238,13 @@ def get_val_metrics(model, test_loader) -> dict[str, Any]:
 
 
 def update_metrics(model, train_loader, test_loader, sch, epoch_metrics_dict, epoch):
-    test_metric_dict = get_train_metrics(model, train_loader)
-    train_metric_dict = get_val_metrics(model, test_loader)
+    train_metric_dict = get_train_metrics(model, train_loader)
+    test_metric_dict = get_val_metrics(model, test_loader)
     sch.step(test_metric_dict["mse"])
     # sch.step()
     epoch_metrics_dict["epoch_num"].append(epoch)
-    epoch_metrics_dict["test_mae"].append(train_metric_dict["mae"])
-    epoch_metrics_dict["train_mae"].append(test_metric_dict["mae"])
+    epoch_metrics_dict["test_mae"].append(test_metric_dict["mae"])
+    epoch_metrics_dict["train_mae"].append(train_metric_dict["mae"])
     epoch_metrics_dict["train_rmse"].append(np.sqrt(train_metric_dict["mse"]))
     epoch_metrics_dict["test_rmse"].append(np.sqrt(test_metric_dict["mse"]))
     for key, val in epoch_metrics_dict.items():

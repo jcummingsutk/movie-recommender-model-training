@@ -1,9 +1,9 @@
 model:
-  lr: .1
-  num_epochs: 75
+  lr: .01
+  num_epochs: 100
 data:
   test_size: .2
-  batch_size: 128
+  batch_size: 64
   num_ratings_thresh: 20
 metrics:
   num_train_examples_until_record_metrics: 1000 
