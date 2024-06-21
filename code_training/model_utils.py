@@ -12,36 +12,6 @@ from torch.utils.data import DataLoader
 from .metric_utils import RunningTrainMetrics, concat_results, get_metrics_dict
 from .visualizations import epoch_metrics_lineplot, training_mae_numexamples_lineplot
 
-# def avg_r_precision(
-#     df: pd.DataFrame, model: nn.Module, device: str, relevant_rating_thresh: float
-# ) -> float:
-#     user_ids = df["userId"].unique()
-#     r_precisions = []
-#     model = model.to(device)
-#     for user_id in user_ids:
-#         df_this_user = df[df["userId"] == user_id]
-#         movies = torch.tensor(df_this_user["movieIdEncoded"].values).to(device)
-#         users = torch.tensor(df_this_user["userIdEncoded"].values).to(device)
-#         print(user_id)
-#         predictions: Tensor = model(users, movies)
-#         predictions_np = predictions.detach().cpu().detach()
-#         df_this_user["prediction"] = predictions_np
-#         df_this_user["relevant"] = df["rating"] >= relevant_rating_thresh
-#         num_relevant_movies = df_this_user["relevant"].sum()
-#         df_this_user = df_this_user.sort_values(by="prediction").head(
-#             num_relevant_movies
-#         )
-#         df_this_user["predicted_relevant"] = (
-#             df_this_user["prediction"] >= relevant_rating_thresh
-#         )
-#         num_predicted_relevant = df_this_user["predicted_relevant"].sum()
-#         if num_relevant_movies > 0:
-#             r_precisions.append(
-#                 float(num_predicted_relevant) / float(num_relevant_movies)
-#             )
-
-#     return np.mean(r_precisions)
-
 
 class Preprocessor:
     def __init__(
